@@ -1,25 +1,49 @@
 const express = require('express');
 const cors = require('cors');
 
-// Debug: Log what we're importing
+// Alternative import method - try different approaches
 console.log('🔍 DEBUG: Starting imports...');
 
+// Method 1: Try direct require
 try {
-    const { TelegramApi, Api } = require('telegram');
-    console.log('✅ DEBUG: TelegramApi imported successfully');
-    console.log('✅ DEBUG: Api imported successfully');
+    const telegram = require('telegram');
+    console.log('✅ DEBUG: telegram module loaded');
+    console.log('🔍 DEBUG: telegram keys:', Object.keys(telegram));
+    
+    const TelegramApi = telegram.TelegramApi;
+    const Api = telegram.Api;
+    
     console.log('�� DEBUG: TelegramApi type:', typeof TelegramApi);
     console.log('�� DEBUG: Api type:', typeof Api);
+    
+    if (typeof TelegramApi === 'function') {
+        console.log('✅ DEBUG: TelegramApi is a function');
+    } else {
+        console.log('❌ DEBUG: TelegramApi is not a function');
+    }
 } catch (error) {
-    console.error('❌ DEBUG: Error importing telegram:', error);
+    console.error('❌ DEBUG: Error with method 1:', error);
 }
 
+// Method 2: Try destructuring
 try {
-    const { StringSession } = require('telegram/sessions');
-    console.log('✅ DEBUG: StringSession imported successfully');
+    const { TelegramApi: TelegramApi2, Api: Api2 } = require('telegram');
+    console.log('🔍 DEBUG: Method 2 - TelegramApi2 type:', typeof TelegramApi2);
+    console.log('🔍 DEBUG: Method 2 - Api2 type:', typeof Api2);
+} catch (error) {
+    console.error('❌ DEBUG: Error with method 2:', error);
+}
+
+// Method 3: Try sessions import
+try {
+    const sessions = require('telegram/sessions');
+    console.log('✅ DEBUG: sessions module loaded');
+    console.log('🔍 DEBUG: sessions keys:', Object.keys(sessions));
+    
+    const StringSession = sessions.StringSession;
     console.log('🔍 DEBUG: StringSession type:', typeof StringSession);
 } catch (error) {
-    console.error('❌ DEBUG: Error importing StringSession:', error);
+    console.error('❌ DEBUG: Error with sessions:', error);
 }
 
 const app = express();
@@ -45,49 +69,14 @@ app.post('/api/telegram/send-code', async (req, res) => {
         const { phoneNumber } = req.body;
         console.log(`📱 Sending REAL code to: ${phoneNumber}`);
         
-        // Debug: Check if TelegramApi is available
-        console.log('�� DEBUG: TelegramApi type:', typeof TelegramApi);
-        console.log('�� DEBUG: TelegramApi constructor:', TelegramApi);
-        
-        if (typeof TelegramApi !== 'function') {
-            throw new Error('TelegramApi is not a constructor function');
-        }
-        
-        const client = new TelegramApi(new StringSession(''), apiId, apiHash, {
-            connectionRetries: 5,
-        });
-
-        await client.connect();
-        console.log('🔗 Connected to Telegram servers');
-
-        const result = await client.invoke(
-            new Api.auth.SendCode({
-                phoneNumber: phoneNumber,
-                apiId: apiId,
-                apiHash: apiHash,
-                settings: new Api.CodeSettings({}),
-            })
-        );
-
-        const sessionId = generateSessionId();
-        sessions.set(sessionId, {
-            client,
-            phoneCodeHash: result.phoneCodeHash,
-            phoneNumber,
-            timestamp: Date.now()
-        });
-
-        console.log(`📨 REAL code sent to ${phoneNumber}`);
-
-        res.json({
-            success: true,
-            sessionId: sessionId,
-            message: 'Code sent to your Telegram app'
+        // For now, just return an error to test if the endpoint works
+        res.status(400).json({
+            success: false,
+            message: 'DEBUG: Endpoint reached, but TelegramApi import failed'
         });
 
     } catch (error) {
         console.error('❌ Send code error:', error);
-        console.error('❌ Error stack:', error.stack);
         res.status(400).json({
             success: false,
             message: error.message || 'Failed to send code'
