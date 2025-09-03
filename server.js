@@ -1,4 +1,4 @@
-cat > server.js << 'EOF'
+
 const express = require('express');
 const cors = require('cors');
 
@@ -260,4 +260,3 @@ app.listen(PORT, () => {
     console.log(`📊 Provides comprehensive user data analysis`);
     console.log(`✅ Ready for testing!`);
 });
-EOF
