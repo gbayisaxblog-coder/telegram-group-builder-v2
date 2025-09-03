@@ -1,7 +1,26 @@
 const express = require('express');
 const cors = require('cors');
-const { TelegramApi, Api } = require('telegram');
-const { StringSession } = require('telegram/sessions');
+
+// Debug: Log what we're importing
+console.log('🔍 DEBUG: Starting imports...');
+
+try {
+    const { TelegramApi, Api } = require('telegram');
+    console.log('✅ DEBUG: TelegramApi imported successfully');
+    console.log('✅ DEBUG: Api imported successfully');
+    console.log('�� DEBUG: TelegramApi type:', typeof TelegramApi);
+    console.log('�� DEBUG: Api type:', typeof Api);
+} catch (error) {
+    console.error('❌ DEBUG: Error importing telegram:', error);
+}
+
+try {
+    const { StringSession } = require('telegram/sessions');
+    console.log('✅ DEBUG: StringSession imported successfully');
+    console.log('🔍 DEBUG: StringSession type:', typeof StringSession);
+} catch (error) {
+    console.error('❌ DEBUG: Error importing StringSession:', error);
+}
 
 const app = express();
 app.use(cors());
@@ -9,6 +28,9 @@ app.use(express.json());
 
 const apiId = parseInt(process.env.API_ID || 29310851);
 const apiHash = process.env.API_HASH || '9823f6b6d9cf657d64d7d33cdde80d1f';
+
+console.log('🔍 DEBUG: API ID:', apiId);
+console.log('�� DEBUG: API Hash:', apiHash ? 'Set' : 'Not set');
 
 const sessions = new Map();
 const authenticatedUsers = new Map();
@@ -22,6 +44,14 @@ app.post('/api/telegram/send-code', async (req, res) => {
     try {
         const { phoneNumber } = req.body;
         console.log(`📱 Sending REAL code to: ${phoneNumber}`);
+        
+        // Debug: Check if TelegramApi is available
+        console.log('�� DEBUG: TelegramApi type:', typeof TelegramApi);
+        console.log('�� DEBUG: TelegramApi constructor:', TelegramApi);
+        
+        if (typeof TelegramApi !== 'function') {
+            throw new Error('TelegramApi is not a constructor function');
+        }
         
         const client = new TelegramApi(new StringSession(''), apiId, apiHash, {
             connectionRetries: 5,
@@ -57,6 +87,7 @@ app.post('/api/telegram/send-code', async (req, res) => {
 
     } catch (error) {
         console.error('❌ Send code error:', error);
+        console.error('❌ Error stack:', error.stack);
         res.status(400).json({
             success: false,
             message: error.message || 'Failed to send code'
